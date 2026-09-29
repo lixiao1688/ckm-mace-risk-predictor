@@ -9,17 +9,17 @@ import pickle
 import numpy as np
 import streamlit as st
 
-st.set_page_config(page_title="CKM-MACE 风险预测", page_icon="🫀", layout="centered")
+st.set_page_config(page_title="CKM-MACE Risk Prediction", page_icon="🫀", layout="centered")
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "model.pkl")
 
 FEATURE_LABELS = {
-    "age": "年龄 (岁)",
-    "neut_pct": "中性粒细胞百分比 (%)",
-    "rbc": "红细胞计数 (×10¹²/L)",
-    "crea": "肌酐 (µmol/L)",
+    "age": "Age (years)",
+    "neut_pct": "Neutrophil percentage (%)",
+    "rbc": "Red blood cell count (×10¹²/L)",
+    "crea": "Creatinine (µmol/L)",
     "egfr": "eGFR (mL/min/1.73 m²)",
-    "n_comorb": "合并症数 (0–10)",
+    "n_comorb": "Comorbidity count (0–10)",
 }
 FEATURES = ["age", "neut_pct", "rbc", "crea", "egfr", "n_comorb"]
 DEFAULTS = {"age": 60, "neut_pct": 65.0, "rbc": 4.0, "crea": 100.0, "egfr": 60.0, "n_comorb": 2}
@@ -37,30 +37,28 @@ art = load_artifacts()
 model = art["model"]
 scaler = art["scaler"]
 
-# 训练集预测概率分位数（用于风险分层）
-TRAIN_QUANTILES = {"p10": 0.034, "p25": 0.055, "p50": 0.095, "p75": 0.159, "p90": 0.244}
-
-st.title("🫀 CKM 综合征 MACE 风险预测")
+st.title("🫀 CKM Syndrome MACE Risk Prediction")
 st.markdown(
-    "基于三中心 CKD 队列开发的**简约 6 特征机器学习模型**，预测新发主要不良心血管事件"
-    "（MACE：心衰 / 心肌梗死 / 卒中）的 1 年风险。"
+    "A **parsimonious 6-feature machine learning model** developed on a three-center CKD cohort, "
+    "predicting the risk of incident major adverse cardiovascular events (MACE: heart failure / "
+    "myocardial infarction / stroke)."
 )
 
 with st.sidebar:
-    st.header("模型信息")
+    st.header("Model information")
     st.markdown(
         """
-        - **模型**：逻辑回归（LASSO 惩罚，C=0.01）
-        - **特征**：6 个 Boruta 筛选的稳定预测因子
-        - **内部 AUC**：0.768（5 折交叉验证）
-        - **外部验证**：0.752（省立）/ 0.808（中心医院，非化验子集）
-        - **校准 Brier**：0.094（全模型）
-        - **推导队列**：千佛山医院 3,225 例（MACE 389，12.1%）
+        - **Model**: logistic regression (LASSO penalty, C=0.01)
+        - **Features**: 6 Boruta-selected stable predictors
+        - **Internal AUC**: 0.768 (5-fold cross-validation)
+        - **External validation**: 0.752 (Provincial) / 0.808 (Central, non-laboratory subset)
+        - **Calibration Brier**: 0.094 (full model)
+        - **Derivation cohort**: Qianfoshan Hospital, 3,225 patients (MACE 389, 12.1%)
         """
     )
-    st.caption("心血管-肾脏-代谢（CKM）综合征人群专用")
+    st.caption("Intended for the cardio-kidney-metabolic (CKM) syndrome population")
 
-st.subheader("输入患者特征")
+st.subheader("Enter patient characteristics")
 col1, col2 = st.columns(2)
 inputs = {}
 for i, feat in enumerate(FEATURES):
@@ -71,53 +69,51 @@ for i, feat in enumerate(FEATURES):
     else:
         inputs[feat] = col.number_input(FEATURE_LABELS[feat], lo, hi, DEFAULTS[feat], step=1)
 
-predict = st.button("预测 MACE 风险", type="primary", use_container_width=True)
+predict = st.button("Predict MACE risk", type="primary", use_container_width=True)
 
 if predict:
     vals = [inputs[f] for f in FEATURES]
-    # neut_pct 训练数据为 0–1 比例，输入为百分比，需除以 100
+    # neut_pct is stored as a 0–1 proportion in training; input is a percentage, so divide by 100
     vals[FEATURES.index("neut_pct")] = vals[FEATURES.index("neut_pct")] / 100.0
     X = np.array([vals], dtype=float)
     X_scaled = scaler.transform(X)
     prob = float(model.predict_proba(X_scaled)[0, 1])
 
     st.divider()
-    st.subheader("预测结果")
+    st.subheader("Prediction")
 
-    # 风险分层
     if prob < 0.05:
-        level, color = "低风险", "🟢"
-        note = "风险低于队列中位水平，建议常规随访。"
+        level, emoji = "Low risk", "🟢"
+        note = "Below the cohort median; routine follow-up suggested."
     elif prob < 0.10:
-        level, color = "中风险", "🟡"
-        note = "风险处于队列中等水平，建议关注肾功能与贫血管理。"
+        level, emoji = "Moderate risk", "🟡"
+        note = "Around the cohort median; consider attention to kidney function and anemia."
     elif prob < 0.16:
-        level, color = "中高风险", "🟠"
-        note = "风险高于队列中位，建议加强心血管危险因素控制。"
+        level, emoji = "Moderate-high risk", "🟠"
+        note = "Above the cohort median; intensify cardiovascular risk-factor control."
     else:
-        level, color = "高风险", "🔴"
-        note = "风险位于队列上四分位，建议强化心肾代谢综合干预并专科随访。"
+        level, emoji = "High risk", "🔴"
+        note = "In the upper quartile of the cohort; consider comprehensive cardio-kidney-metabolic intervention and specialist follow-up."
 
     c1, c2 = st.columns(2)
     with c1:
-        st.metric("MACE 风险概率", f"{prob:.1%}")
+        st.metric("MACE risk probability", f"{prob:.1%}")
     with c2:
-        st.metric("风险分层", f"{color} {level}")
+        st.metric("Risk stratum", f"{emoji} {level}")
 
-    st.progress(min(prob / 0.30, 1.0), text="相对风险条（满格≈30%）")
+    st.progress(min(prob / 0.30, 1.0), text="Relative risk bar (full ≈ 30%)")
     st.info(note)
 
-    # 特征贡献方向
-    st.caption("各特征对风险的贡献方向（模型系数）：")
+    st.caption("Direction of each feature's contribution to risk (model coefficients):")
     coefs = {f: c for f, c in zip(FEATURES, model.coef_[0])}
     contrib = []
     for f in FEATURES:
-        direction = "↑ 风险" if coefs[f] > 0 else "↓ 风险"
-        contrib.append(f"- {FEATURE_LABELS[f]}：{direction}")
+        direction = "↑ risk" if coefs[f] > 0 else "↓ risk"
+        contrib.append(f"- {FEATURE_LABELS[f]}: {direction}")
     st.write("\n".join(contrib))
 
     st.divider()
     st.caption(
-        "⚠️ 本工具仅供科研与教学参考，不构成临床诊断或治疗决策依据。"
-        "模型基于回顾性队列开发，预测为事件发生概率，非确定性结论。"
+        "⚠️ For research and educational purposes only; not a clinical diagnostic or treatment decision tool. "
+        "The model was developed on a retrospective cohort and outputs an event probability, not a deterministic outcome."
     )
